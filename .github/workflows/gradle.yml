@@ -1,0 +1,45 @@
+name: CI
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_NDK: "21.4.7075529"
+      EXOPLAYER: "r2.16.1"
+      FFMPEG: "release/4.4"
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up JDK 11
+      uses: actions/setup-java@v2
+      with:
+        java-version: '11'
+        distribution: 'adopt'
+    - name: Build with Gradle
+      run: |
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-7583922_latest.zip
+        unzip -qq commandlinetools-linux-7583922_latest.zip
+        mkdir -p android-sdk/cmdline-tools && mv cmdline-tools $_/latest
+        export ANDROID_HOME=$PWD/android-sdk
+        export ANDROID_SDK_ROOT=$ANDROID_HOME
+        export NDK_PATH=$ANDROID_HOME/ndk/$ANDROID_NDK
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+        echo y | sdkmanager --update >> log.txt
+        echo y | sdkmanager --install "ndk;$ANDROID_NDK" >> log.txt
+        git clone -b $EXOPLAYER https://github.com/google/ExoPlayer.git
+        export FFMPEG_EXT_PATH=$PWD/ExoPlayer/extensions/ffmpeg/src/main
+        export HOST_PLATFORM="linux-x86_64"
+        export ENABLED_DECODERS=(vorbis opus flac alac pcm_mulaw pcm_alaw mp3 amrnb amrwb aac ac3 eac3 dca mlp truehd)
+        pushd $FFMPEG_EXT_PATH/jni
+        git clone -b $FFMPEG git://source.ffmpeg.org/ffmpeg
+        rm -rf /usr/local/bin/cmake
+        ./build_ffmpeg.sh $FFMPEG_EXT_PATH $NDK_PATH $HOST_PLATFORM ${ENABLED_DECODERS[@]}
+        popd
+        pushd ExoPlayer
+        ./gradlew :extension-ffmpeg:assembleRelease
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: extension-ffmpeg-release.aar
+        path: ExoPlayer/extensions/ffmpeg/buildout/outputs/aar
